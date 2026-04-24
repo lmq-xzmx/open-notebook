@@ -7,6 +7,7 @@ import { SpeakerProfile, needsModelSetup } from '@/lib/types/podcasts'
 import {
   useDeleteSpeakerProfile,
   useDuplicateSpeakerProfile,
+  useTestSpeakerProfile,
 } from '@/lib/hooks/use-podcasts'
 import { useModels } from '@/lib/hooks/use-models'
 import { SpeakerProfileFormDialog } from '@/components/podcasts/forms/SpeakerProfileFormDialog'
@@ -54,6 +55,7 @@ export function SpeakerProfilesPanel({
 
   const deleteProfile = useDeleteSpeakerProfile()
   const duplicateProfile = useDuplicateSpeakerProfile()
+  const testProfile = useTestSpeakerProfile()
   const { data: models = [] } = useModels()
 
   const modelNameMap = useMemo(() => {
@@ -169,6 +171,14 @@ export function SpeakerProfilesPanel({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testProfile.mutate(profile.id)}
+                      disabled={testProfile.isPending}
+                    >
+                      {t('apiKeys.testConnection')}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

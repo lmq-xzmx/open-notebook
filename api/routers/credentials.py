@@ -93,6 +93,18 @@ async def get_env_status():
         raise HTTPException(status_code=500, detail="Failed to check environment status")
 
 
+@router.get("/edge-tts-status")
+async def get_edge_tts_status():
+    """Get the availability status of Edge TTS (edge-tts package)."""
+    from open_notebook.domain.credential import Credential
+
+    available = Credential.is_edge_tts_available()
+    return {
+        "available": available,
+        "message": "Edge TTS is available" if available else "edge-tts package not installed. Run: uv pip install edge-tts",
+    }
+
+
 # =============================================================================
 # CRUD endpoints
 # =============================================================================

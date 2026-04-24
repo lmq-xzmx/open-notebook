@@ -188,3 +188,103 @@ async def duplicate_speaker_profile(profile_id: str):
         raise HTTPException(
             status_code=500, detail="Failed to duplicate speaker profile"
         )
+
+
+class TestProfileResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/speaker-profiles/{profile_id}/test", response_model=TestProfileResponse)
+async def test_speaker_profile(profile_id: str):
+    """Test if a speaker profile's TTS configuration is valid."""
+    try:
+        profile = await SpeakerProfile.get(profile_id)
+        if not profile:
+            raise HTTPException(
+                status_code=404, detail=f"Speaker profile '{profile_id}' not found"
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Speaker profile not found")
+
+    try:
+        provider_type, voice_id, config = await profile.resolve_tts_config()
+
+        # Test based on provider type
+        if provider_type == "edge":
+            from open_notebook.tts.edge_tts import is_edge_tts_available, generate_speech
+            import asyncio
+            import concurrent.futures
+
+            if not is_edge_tts_available():
+                return TestProfileResponse(
+                    success=False,
+                    message="edge-tts package not installed. Run: uv pip install edge-tts",
+                )
+
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, generate_speech("测试", voice=voice_id))
+                    audio_data, session_id = future.result()
+                return TestProfileResponse(
+                    success=True,
+                    message=f"Edge TTS working - generated {len(audio_data)} bytes",
+                )
+            except Exception as e:
+                return TestProfileResponse(success=False, message=f"Edge TTS error: {str(e)[:100]}")
+
+        elif provider_type == "minimax":
+            from open_notebook.tts.minimax_tts import generate_speech
+            from open_notebook.ai.models import Model
+            import os
+
+            # Get model name from model record
+            model_record = await Model.get(profile.voice_model)
+            model_name = model_record.name if model_record else "speech-02-turbo"
+
+            api_key = config.get("api_key") or os.environ.get("MINIMAX_API_KEY", "")
+            if not api_key:
+                return TestProfileResponse(success=False, message="MiniMax API key not configured")
+
+            try:
+                audio_data, session_id = await generate_speech(
+                    text="测试",
+                    model=model_name,
+                    voice_id=voice_id,
+                    api_key=api_key,
+                )
+                return TestProfileResponse(
+                    success=True,
+                    message=f"MiniMax TTS working - generated {len(audio_data)} bytes",
+                )
+            except Exception as e:
+                return TestProfileResponse(success=False, message=f"MiniMax TTS error: {str(e)[:100]}")
+
+        elif provider_type == "tencent":
+            return TestProfileResponse(
+                success=False,
+                message="Tencent TTS test not yet implemented - please configure via API Keys page",
+            )
+
+        else:
+            # Generic model-based TTS
+            from open_notebook.ai.connection_tester import test_individual_model
+            from open_notebook.ai.models import Model
+
+            model_record = await Model.get(profile.voice_model)
+            if not model_record:
+                return TestProfileResponse(
+                    success=False,
+                    message="Voice model not found in model registry",
+                )
+
+            success, message = await test_individual_model(model_record)
+            return TestProfileResponse(success=success, message=message)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing speaker profile {profile_id}: {e}")
+        return TestProfileResponse(success=False, message=f"Error: {str(e)[:100]}")

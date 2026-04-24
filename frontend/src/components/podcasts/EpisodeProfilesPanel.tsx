@@ -7,6 +7,7 @@ import { EpisodeProfile, SpeakerProfile, needsModelSetup } from '@/lib/types/pod
 import {
   useDeleteEpisodeProfile,
   useDuplicateEpisodeProfile,
+  useTestEpisodeProfile,
 } from '@/lib/hooks/use-podcasts'
 import { useModels } from '@/lib/hooks/use-models'
 import { EpisodeProfileFormDialog } from '@/components/podcasts/forms/EpisodeProfileFormDialog'
@@ -61,6 +62,7 @@ export function EpisodeProfilesPanel({
 
   const deleteProfile = useDeleteEpisodeProfile()
   const duplicateProfile = useDuplicateEpisodeProfile()
+  const testProfile = useTestEpisodeProfile()
   const { data: models = [] } = useModels()
 
   const modelNameMap = useMemo(() => {
@@ -132,6 +134,14 @@ export function EpisodeProfilesPanel({
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testProfile.mutate(profile.id)}
+                      disabled={testProfile.isPending}
+                    >
+                      {t('apiKeys.testConnection')}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

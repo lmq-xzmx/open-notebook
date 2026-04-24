@@ -127,6 +127,11 @@ class SpeakerProfile(ObjectModel):
     """
     Speaker Profile - Voice and personality configuration.
     Supports 1-4 speakers for flexible podcast formats.
+
+    TTS Provider Types:
+    - "edge": Edge TTS (微软, 免费)
+    - "tencent": 腾讯云 TTS
+    - "model": 使用 Model 记录 (Esperanto providers)
     """
 
     table_name: ClassVar[str] = "speaker_profile"
@@ -135,6 +140,7 @@ class SpeakerProfile(ObjectModel):
         "tts_provider",
         "tts_model",
         "voice_model",
+        "tts_provider_type",
     }
 
     name: str = Field(..., description="Unique profile name")
@@ -148,7 +154,19 @@ class SpeakerProfile(ObjectModel):
 
     # New field: Model registry reference
     voice_model: Optional[str] = Field(
-        None, description="Model record ID for TTS"
+        None, description="Model record ID for TTS (used when tts_provider_type is 'model')"
+    )
+
+    # TTS Provider Type: "edge", "tencent", "minimax", or "model" (default)
+    tts_provider_type: Optional[str] = Field(
+        None, description="TTS provider type: 'edge', 'tencent', 'minimax', or 'model' (default)"
+    )
+
+    # TTS Voice for edge/tencent providers
+    # For edge: voice name like "zh-CN-XiaoxiaoNeural"
+    # For tencent: voice_type integer (1=中文, 0=英文)
+    tts_voice: Optional[str] = Field(
+        None, description="TTS voice/voice_type for edge/tencent providers"
     )
 
     speakers: List[Dict[str, Any]] = Field(
@@ -180,7 +198,33 @@ class SpeakerProfile(ObjectModel):
         return data
 
     async def resolve_tts_config(self) -> Tuple[str, str, dict]:
-        """Resolve TTS model -> (provider, model_name, config_dict)"""
+        """Resolve TTS model -> (provider, model_name, config_dict)
+
+        Returns:
+            Tuple of (provider_type, provider_model, config)
+            - For 'edge': returns ("edge", voice_name, {})
+            - For 'tencent': returns ("tencent", voice_type, {})
+            - For 'minimax': returns ("minimax", voice_id, {})
+            - For 'model': returns (provider, model_name, config) via Model record
+        """
+        provider_type = self.tts_provider_type or "model"
+
+        if provider_type == "edge":
+            # Edge TTS uses voice name directly
+            voice = self.tts_voice or "zh-CN-XiaoxiaoNeural"
+            return ("edge", voice, {})
+
+        elif provider_type == "tencent":
+            # Tencent TTS uses voice_type (1=中文, 0=英文)
+            voice_type = self.tts_voice or "1"
+            return ("tencent", voice_type, {})
+
+        elif provider_type == "minimax":
+            # MiniMax TTS uses voice_id (e.g., "audiobook_male_1")
+            voice_id = self.tts_voice or "audiobook_male_1"
+            return ("minimax", voice_id, {})
+
+        # Default: use Model record
         if not self.voice_model:
             raise ValueError(
                 f"Speaker profile '{self.name}' has no voice model configured. "

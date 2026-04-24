@@ -137,6 +137,7 @@ DASHSCOPE_MODEL_TYPES = {
 
 MINIMAX_MODEL_TYPES = {
     "language": ["minimax", "abab"],
+    "text_to_speech": ["speech-"],
 }
 
 
@@ -563,12 +564,40 @@ async def discover_dashscope_models() -> List[DiscoveredModel]:
 
 
 async def discover_minimax_models() -> List[DiscoveredModel]:
-    """Fetch available models from MiniMax API."""
+    """Fetch available models from MiniMax API.
+
+    MiniMax TTS models are not discoverable via API, so they are hardcoded.
+    Language models are fetched from the API.
+    """
     api_key = os.environ.get("MINIMAX_API_KEY")
-    if not api_key:
-        return []
 
     models = []
+
+    # Hardcoded TTS models (MiniMax TTS API doesn't have a model list endpoint)
+    tts_models = [
+        "speech-2.8-hd",
+        "speech-2.8-turbo",
+        "speech-2.6-hd",
+        "speech-2.6-turbo",
+        "speech-02-hd",
+        "speech-02-turbo",
+        "speech-01-hd",
+        "speech-01-turbo",
+    ]
+    for model_name in tts_models:
+        models.append(
+            DiscoveredModel(
+                name=model_name,
+                provider="minimax",
+                model_type="text_to_speech",
+            )
+        )
+
+    # Try to fetch language models from API
+    if not api_key:
+        logger.warning("No MINIMAX_API_KEY, skipping language model discovery")
+        return models
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -583,15 +612,16 @@ async def discover_minimax_models() -> List[DiscoveredModel]:
                 model_id = model.get("id", "")
                 if model_id:
                     model_type = classify_model_type(model_id, "minimax")
-                    models.append(
-                        DiscoveredModel(
-                            name=model_id,
-                            provider="minimax",
-                            model_type=model_type,
+                    if model_type == "language":
+                        models.append(
+                            DiscoveredModel(
+                                name=model_id,
+                                provider="minimax",
+                                model_type=model_type,
+                            )
                         )
-                    )
     except Exception as e:
-        logger.warning(f"Failed to discover MiniMax models: {e}")
+        logger.warning(f"Failed to discover MiniMax language models: {e}")
 
     return models
 

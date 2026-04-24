@@ -224,3 +224,80 @@ async def duplicate_episode_profile(profile_id: str):
         raise HTTPException(
             status_code=500, detail="Failed to duplicate episode profile"
         )
+
+
+class TestProfileResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/episode-profiles/{profile_id}/test", response_model=TestProfileResponse)
+async def test_episode_profile(profile_id: str):
+    """Test if an episode profile's LLM configurations are valid."""
+    try:
+        profile = await EpisodeProfile.get(profile_id)
+        if not profile:
+            raise HTTPException(
+                status_code=404, detail=f"Episode profile '{profile_id}' not found"
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Episode profile not found")
+
+    try:
+        results = []
+
+        # Test outline LLM if configured
+        if profile.outline_llm:
+            try:
+                from open_notebook.ai.connection_tester import test_individual_model
+                from open_notebook.ai.models import Model
+
+                model_record = await Model.get(profile.outline_llm)
+                if model_record:
+                    success, message = await test_individual_model(model_record)
+                    results.append(f"Outline LLM: {message}")
+                else:
+                    results.append("Outline LLM: Model not found in registry")
+            except Exception as e:
+                results.append(f"Outline LLM: Error - {str(e)[:50]}")
+
+        # Test transcript LLM if configured
+        if profile.transcript_llm:
+            try:
+                from open_notebook.ai.connection_tester import test_individual_model
+                from open_notebook.ai.models import Model
+
+                model_record = await Model.get(profile.transcript_llm)
+                if model_record:
+                    success, message = await test_individual_model(model_record)
+                    results.append(f"Transcript LLM: {message}")
+                else:
+                    results.append("Transcript LLM: Model not found in registry")
+            except Exception as e:
+                results.append(f"Transcript LLM: Error - {str(e)[:50]}")
+
+        # Test speaker profile exists
+        if profile.speaker_config:
+            from open_notebook.podcasts.models import SpeakerProfile
+
+            speaker = await SpeakerProfile.get_by_name(profile.speaker_config)
+            if speaker:
+                results.append(f"Speaker profile: '{speaker.name}' found")
+            else:
+                results.append(f"Speaker profile: '{profile.speaker_config}' NOT FOUND")
+
+        if results:
+            return TestProfileResponse(success=True, message=" | ".join(results))
+        else:
+            return TestProfileResponse(
+                success=False,
+                message="No models configured for this profile",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing episode profile {profile_id}: {e}")
+        return TestProfileResponse(success=False, message=f"Error: {str(e)[:100]}")

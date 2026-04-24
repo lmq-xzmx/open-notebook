@@ -1,11 +1,38 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { getApiErrorMessage } from '@/lib/utils/error-handler'
 import { searchApi } from '@/lib/api/search'
 import { AskStreamEvent } from '@/lib/types/search'
+
+const ASK_HISTORY_KEY = 'ask-history'
+const MAX_HISTORY_ITEMS = 50
+
+function loadAskHistory(): AskHistoryItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = localStorage.getItem(ASK_HISTORY_KEY)
+    if (!stored) return []
+    const parsed = JSON.parse(stored)
+    return parsed.map((item: AskHistoryItem & { createdAt: string }) => ({
+      ...item,
+      createdAt: new Date(item.createdAt)
+    }))
+  } catch {
+    return []
+  }
+}
+
+function saveAskHistory(history: AskHistoryItem[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 interface AskModels {
   strategy: string
@@ -18,22 +45,34 @@ interface StrategyData {
   searches: Array<{ term: string; instructions: string }>
 }
 
+export interface AskHistoryItem {
+  id: string
+  question: string
+  answer: string
+  strategy: StrategyData | null
+  answers: string[]
+  createdAt: Date
+}
+
 interface AskState {
   isStreaming: boolean
   strategy: StrategyData | null
   answers: string[]
   finalAnswer: string | null
   error: string | null
+  currentQuestion: string
 }
 
 export function useAsk() {
   const { t } = useTranslation()
+  const [history, setHistory] = useState<AskHistoryItem[]>(() => loadAskHistory())
   const [state, setState] = useState<AskState>({
     isStreaming: false,
     strategy: null,
     answers: [],
     finalAnswer: null,
-    error: null
+    error: null,
+    currentQuestion: ''
   })
 
   const sendAsk = useCallback(async (question: string, models: AskModels) => {
@@ -54,7 +93,8 @@ export function useAsk() {
       strategy: null,
       answers: [],
       finalAnswer: null,
-      error: null
+      error: null,
+      currentQuestion: question
     })
 
     try {
@@ -134,7 +174,25 @@ export function useAsk() {
       }
 
       // Ensure streaming is stopped
-      setState(prev => ({ ...prev, isStreaming: false }))
+      setState(prev => {
+        // Save to history after successful completion
+        if (prev.finalAnswer) {
+          const historyItem: AskHistoryItem = {
+            id: `ask-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            question,
+            answer: prev.finalAnswer,
+            strategy: prev.strategy,
+            answers: prev.answers,
+            createdAt: new Date()
+          }
+          setHistory(prevHistory => {
+            const newHistory = [historyItem, ...prevHistory].slice(0, MAX_HISTORY_ITEMS)
+            saveAskHistory(newHistory)
+            return newHistory
+          })
+        }
+        return { ...prev, isStreaming: false }
+      })
 
     } catch (error) {
       const err = error as { message?: string }
@@ -159,13 +217,33 @@ export function useAsk() {
       strategy: null,
       answers: [],
       finalAnswer: null,
-      error: null
+      error: null,
+      currentQuestion: ''
     })
+  }, [])
+
+  const loadFromHistory = useCallback((item: AskHistoryItem) => {
+    setState({
+      isStreaming: false,
+      strategy: item.strategy,
+      answers: item.answers,
+      finalAnswer: item.answer,
+      error: null,
+      currentQuestion: item.question
+    })
+  }, [])
+
+  const clearHistory = useCallback(() => {
+    setHistory([])
+    saveAskHistory([])
   }, [])
 
   return {
     ...state,
+    history,
     sendAsk,
-    reset
+    reset,
+    loadFromHistory,
+    clearHistory
   }
 }

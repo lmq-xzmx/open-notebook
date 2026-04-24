@@ -10,7 +10,29 @@ services:
     environment:
       - SURREAL_EXPERIMENTAL_GRAPHQL=true
     restart: always
-    pull_policy: always
+    pull_policy: if_not_present
+
+  # Local Ollama service for embeddings and LLM
+  # Documentation: https://github.com/lfnovo/open-notebook/blob/main/docs/5-CONFIGURATION/ollama.md
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: always
+    pull_policy: if_not_present
+
+  # Local Speaches service for TTS and STT
+  # Documentation: https://github.com/lfnovo/open-notebook/blob/main/docs/5-CONFIGURATION/local-tts.md
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "8969:8000"
+    volumes:
+      - hf_hub_cache:/home/ubuntu/.cache/huggingface/hub
+    restart: always
+    pull_policy: if_not_present
 
   open_notebook:
     image: lfnovo/open_notebook:local
@@ -28,9 +50,18 @@ services:
       - SURREAL_PASSWORD=root
       - SURREAL_NAMESPACE=open_notebook
       - SURREAL_DATABASE=open_notebook
+
+      # Ollama connection (for embeddings and LLM)
+      - OLLAMA_BASE_URL=http://ollama:11434
     volumes:
       - ./notebook_data:/app/data
     depends_on:
       - surrealdb
+      - ollama
+      - speaches
     restart: always
     pull_policy: if_not_present
+
+volumes:
+  ollama_models:
+  hf_hub_cache:

@@ -33,6 +33,7 @@ export function StreamingResponse({
 }: StreamingResponseProps) {
   const [strategyOpen, setStrategyOpen] = useState(false)
   const [answersOpen, setAnswersOpen] = useState(false)
+  const [finalAnswerOpen, setFinalAnswerOpen] = useState(true)
   const { openModal } = useModalManager()
   const { t } = useTranslation()
 
@@ -129,22 +130,29 @@ export function StreamingResponse({
         </Collapsible>
       )}
 
-      {/* Final Answer Section - Always Open */}
+      {/* Final Answer Section - Collapsible */}
       {finalAnswer && (
-        <Card className="border-primary">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-primary" />
-              {t('common.finalAnswer')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <FinalAnswerContent
-              content={finalAnswer}
-              onReferenceClick={handleReferenceClick}
-            />
-          </CardContent>
-        </Card>
+        <Collapsible open={finalAnswerOpen} onOpenChange={setFinalAnswerOpen}>
+          <Card className="border-primary">
+            <CardHeader>
+              <CollapsibleTrigger className="flex items-center justify-between w-full hover:opacity-80">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-primary" />
+                  {t('common.finalAnswer')}
+                </CardTitle>
+                <ChevronDown className={`h-4 w-4 transition-transform ${finalAnswerOpen ? 'rotate-180' : ''}`} />
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent>
+                <FinalAnswerContent
+                  content={finalAnswer}
+                  onReferenceClick={handleReferenceClick}
+                />
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
 
       {/* Loading Indicator */}

@@ -20,7 +20,7 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 interface SaveToNotebooksDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  question: string
+  question?: string
   answer: string
 }
 
@@ -32,7 +32,7 @@ export function SaveToNotebooksDialog({
 }: SaveToNotebooksDialogProps) {
   const { t } = useTranslation()
   const [selectedNotebooks, setSelectedNotebooks] = useState<string[]>([])
-  const { data: notebooks, isLoading } = useNotebooks(false) // false = not archived
+  const { data: notebooks, isLoading } = useNotebooks() // Fetch all notebooks, filter client-side
   const createNote = useCreateNote()
 
   const handleToggle = (notebookId: string) => {
@@ -68,9 +68,10 @@ export function SaveToNotebooksDialog({
     }
   }
 
+  // Show all notebooks (including archived) with a label for archived ones
   const notebookItems = notebooks?.map(nb => ({
     id: nb.id,
-    title: nb.name,
+    title: nb.name + (nb.archived ? ' (archived)' : ''),
     description: nb.description || undefined
   })) || []
 

@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Search, ChevronDown, AlertCircle, Settings, Save, MessageCircleQuestion } from 'lucide-react'
+import { Search, ChevronDown, AlertCircle, Settings, Save, MessageCircleQuestion, Clock, Trash2, FileText } from 'lucide-react'
 import { useSearch } from '@/lib/hooks/use-search'
 import { useAsk } from '@/lib/hooks/use-ask'
 import { useModelDefaults, useModels } from '@/lib/hooks/use-models'
@@ -56,6 +56,10 @@ export default function SearchPage() {
 
   // Save to notebooks dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saveToNotebookItem, setSaveToNotebookItem] = useState<{
+    question: string
+    answer: string
+  } | null>(null)
 
   // Hooks
   const searchMutation = useSearch()
@@ -245,11 +249,11 @@ export default function SearchPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
                       <Button
                         onClick={handleAsk}
                         disabled={ask.isStreaming || !askQuestion.trim()}
-                        className="w-full"
+                        className="w-full sm:w-auto"
                       >
                         {ask.isStreaming ? (
                           <>
@@ -265,7 +269,7 @@ export default function SearchPage() {
                         <Button
                           variant="outline"
                           onClick={() => setShowSaveDialog(true)}
-                          className="w-full"
+                          className="w-full sm:w-auto"
                         >
                           <Save className="h-4 w-4 mr-2" />
                           {t('searchPage.saveToNotebooks')}
@@ -273,6 +277,67 @@ export default function SearchPage() {
                       )}
                     </div>
                   </>
+                )}
+
+                {/* History Section */}
+                {ask.history.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Clock className="h-4 w-4" />
+                        {t('searchPage.questionHistory')}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={ask.clearHistory}
+                        className="h-auto py-1 px-2 text-muted-foreground"
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        {t('common.clear')}
+                      </Button>
+                    </div>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                      {ask.history.map((item) => (
+                        <Card
+                          key={item.id}
+                          className="cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => {
+                            ask.loadFromHistory(item)
+                            setAskQuestion(item.question)
+                          }}
+                        >
+                          <CardContent className="p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate pr-2">{item.question}</p>
+                                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                  {item.answer.slice(0, 100)}
+                                  {item.answer.length > 100 ? '...' : ''}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(item.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto py-1 px-1 shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSaveToNotebookItem({ question: item.question, answer: item.answer })
+                                  setShowSaveDialog(true)
+                                }}
+                                title={t('searchPage.saveToNotebooks')}
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 {/* Streaming Response */}
@@ -299,9 +364,14 @@ export default function SearchPage() {
                 {ask.finalAnswer && (
                   <SaveToNotebooksDialog
                     open={showSaveDialog}
-                    onOpenChange={setShowSaveDialog}
-                    question={askQuestion}
-                    answer={ask.finalAnswer}
+                    onOpenChange={(open) => {
+                      setShowSaveDialog(open)
+                      if (!open) {
+                        setSaveToNotebookItem(null)
+                      }
+                    }}
+                    question={saveToNotebookItem?.question || askQuestion}
+                    answer={saveToNotebookItem?.answer || ask.finalAnswer}
                   />
                 )}
               </CardContent>
@@ -488,6 +558,74 @@ export default function SearchPage() {
                         )})}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Search History Section */}
+                {searchMutation.history.length > 0 && !searchMutation.data && (
+                  <div className="space-y-2 mt-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Clock className="h-4 w-4" />
+                        {t('searchPage.searchHistory')}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={searchMutation.clearHistory}
+                        className="h-auto py-1 px-2 text-muted-foreground"
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        {t('common.clear')}
+                      </Button>
+                    </div>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                      {searchMutation.history.map((item) => (
+                        <Card
+                          key={item.id}
+                          className="cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => {
+                            searchMutation.loadFromHistory(item)
+                            setSearchQuery(item.query)
+                            setSearchType(item.searchType)
+                            searchMutation.mutate({
+                              query: item.query,
+                              type: item.searchType,
+                              limit: 100,
+                              search_sources: searchSources,
+                              search_notes: searchNotes,
+                              minimum_score: 0.2
+                            })
+                          }}
+                        >
+                          <CardContent className="p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate pr-2">{item.query}</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {item.searchType === 'text' ? t('searchPage.textSearch') : t('searchPage.vectorSearch')} • {item.resultCount} {t('searchPage.resultsLabel')}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {new Date(item.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto py-1 px-1 shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  searchMutation.removeFromHistory(item.id)
+                                }}
+                                title={t('common.delete')}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
                   </div>
                 )}
               </CardContent>

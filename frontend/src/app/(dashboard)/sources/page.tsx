@@ -17,6 +17,7 @@ import { getDateLocale } from '@/lib/utils/date-locale'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getApiErrorKey } from '@/lib/utils/error-handler'
+import { ProcessingStatusBadge } from '@/components/sources/ProcessingStatusBadge'
 
 export default function SourcesPage() {
   const { t, language } = useTranslation()
@@ -340,6 +341,9 @@ export default function SourcesPage() {
                 <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground hidden lg:table-cell">
                   {t('sources.embedded')}
                 </th>
+                <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground hidden xl:table-cell">
+                  {t('sources.processing.status') || '状态'}
+                </th>
                 <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">
                   {t('common.actions')}
                 </th>
@@ -392,6 +396,12 @@ export default function SourcesPage() {
                       {source.embedded ? t('sources.yes') : t('sources.no')}
                     </Badge>
                   </td>
+                  <td className="h-12 px-4 text-center hidden xl:table-cell">
+                    <ProcessingStatusBadge
+                      sourceId={source.id}
+                      embedded={source.embedded}
+                    />
+                  </td>
                   <td className="h-12 px-4 text-right">
                     <Button
                       variant="ghost"
@@ -406,7 +416,7 @@ export default function SourcesPage() {
               ))}
               {loadingMore && (
                 <tr>
-                  <td colSpan={6} className="h-16 text-center">
+                  <td colSpan={7} className="h-16 text-center">
                     <div className="flex items-center justify-center">
                       <LoadingSpinner />
                       <span className="ml-2 text-muted-foreground">{t('sources.loadingMore')}</span>

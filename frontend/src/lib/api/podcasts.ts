@@ -111,6 +111,20 @@ export const podcastsApi = {
     return response.data
   },
 
+  testSpeakerProfile: async (profileId: string) => {
+    const response = await apiClient.post<{ success: boolean; message: string }>(
+      `/speaker-profiles/${profileId}/test`
+    )
+    return response.data
+  },
+
+  testEpisodeProfile: async (profileId: string) => {
+    const response = await apiClient.post<{ success: boolean; message: string }>(
+      `/episode-profiles/${profileId}/test`
+    )
+    return response.data
+  },
+
   generatePodcast: async (payload: PodcastGenerationRequest) => {
     const response = await apiClient.post<PodcastGenerationResponse>(
       '/podcasts/generate',

@@ -386,6 +386,68 @@ export function useDuplicateSpeakerProfile() {
   })
 }
 
+export function useTestSpeakerProfile() {
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: (profileId: string) =>
+      podcastsApi.testSpeakerProfile(profileId),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast({
+          title: t('podcasts.testSuccess'),
+          description: result.message,
+        })
+      } else {
+        toast({
+          title: t('podcasts.testFailed'),
+          description: result.message,
+          variant: 'destructive',
+        })
+      }
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: t('podcasts.testFailed'),
+        description: getApiErrorKey(error, t('common.error')),
+        variant: 'destructive',
+      })
+    },
+  })
+}
+
+export function useTestEpisodeProfile() {
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: (profileId: string) =>
+      podcastsApi.testEpisodeProfile(profileId),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast({
+          title: t('podcasts.testSuccess'),
+          description: result.message,
+        })
+      } else {
+        toast({
+          title: t('podcasts.testFailed'),
+          description: result.message,
+          variant: 'destructive',
+        })
+      }
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: t('podcasts.testFailed'),
+        description: getApiErrorKey(error, t('common.error')),
+        variant: 'destructive',
+      })
+    },
+  })
+}
+
 export function useGeneratePodcast() {
   const queryClient = useQueryClient()
   const { toast } = useToast()

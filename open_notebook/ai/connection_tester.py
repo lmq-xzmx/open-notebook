@@ -36,6 +36,10 @@ TEST_MODELS = {
     "openai_compatible": (None, "language"),  # Dynamic - will use first available model
     "dashscope": ("qwen-plus", "language"),
     "minimax": ("MiniMax-M2.5", "language"),
+    # Edge TTS - special handling, doesn't use Esperanto
+    "edge": (None, "text_to_speech"),
+    # Tencent Cloud TTS - uses OpenAI-compatible API format
+    "tencent": (None, "text_to_speech"),
 }
 
 
@@ -169,6 +173,55 @@ async def _test_openai_compatible_connection(base_url: str, api_key: Optional[st
     except Exception as e:
         return False, f"Connection error: {str(e)[:100]}"
 
+
+async def _test_tencent_tts_connection(base_url: str, api_key: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Test Tencent Cloud TTS connectivity.
+
+    Tencent Cloud TTS uses HMAC-SHA256 signature authentication.
+    The API key (SecretId:SecretKey) format needs to be split and used for signing.
+    """
+    if not api_key:
+        return False, "No API key configured for Tencent Cloud TTS"
+
+    try:
+        # Tencent Cloud TTS uses OpenAI-compatible format
+        # Base URL should be https://tts.tencentcloudapi.com
+        test_url = f"{base_url.rstrip('/')}/v1/audio/speech"
+
+        headers = {
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": "tencent-tts",
+            "input": "测试",
+            "voice": "tencent_cloud_tts",  # Will be ignored but needed for format
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(test_url, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                return True, "Tencent Cloud TTS is available"
+            elif response.status_code == 401:
+                return False, "Invalid API key"
+            elif response.status_code == 403:
+                return False, "API key lacks required permissions"
+            elif response.status_code == 404:
+                # Model not found but auth worked - this is actually a success
+                return True, "API key valid (endpoint accessible)"
+            else:
+                return False, f"Server returned status {response.status_code}"
+
+    except httpx.ConnectError:
+        return False, "Cannot connect to Tencent Cloud TTS. Check the URL."
+    except httpx.TimeoutException:
+        return False, "Connection timed out. Check network."
+    except Exception as e:
+        return False, f"Connection error: {str(e)[:100]}"
+
+
 async def test_provider_connection(
     provider: str, model_type: str = "language", config_id: Optional[str] = None
 ) -> Tuple[bool, str]:
@@ -233,6 +286,29 @@ async def test_provider_connection(
 
         test_model, test_model_type = TEST_MODELS[normalized_provider]
 
+        # Special handling for Edge TTS (uses local Python library, not Esperanto)
+        if normalized_provider == "edge":
+            from open_notebook.tts.edge_tts import is_edge_tts_available, generate_speech
+            import asyncio
+            import concurrent.futures
+
+            if not is_edge_tts_available():
+                return False, "edge-tts package not installed. Run: uv pip install edge-tts"
+
+            try:
+                # Use a thread pool since we're in an async context with running loop
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, generate_speech("Test", voice="zh-CN-XiaoxiaoNeural"))
+                    audio_data, session_id = future.result()
+            except Exception as e:
+                return False, f"Edge TTS test failed: {str(e)[:100]}"
+            return True, "Edge TTS is available"
+
+        # Special handling for Tencent Cloud TTS (OpenAI-compatible format with HMAC auth)
+        if normalized_provider == "tencent":
+            test_base_url = base_url or "https://tts.tencentcloudapi.com"
+            return await _test_tencent_tts_connection(test_base_url, api_key)
+
         # Use model from config if provided, otherwise use TEST_MODELS default
         model_to_use = model_name if model_name else test_model
 
@@ -265,7 +341,24 @@ async def test_provider_connection(
             return True, "Connection successful"
 
         elif test_model_type == "text_to_speech":
-            # For TTS, we just verify the model can be created
+            # Special handling for Edge TTS (doesn't use AIFactory)
+            if normalized_provider == "edge":
+                from open_notebook.tts.edge_tts import is_edge_tts_available, generate_speech
+                import asyncio
+
+                if not is_edge_tts_available():
+                    return False, "edge-tts package not installed. Run: uv pip install edge-tts"
+
+                # Try to generate a short speech to verify it works
+                try:
+                    asyncio.get_event_loop().run_until_complete(
+                        generate_speech("Test", voice="zh-CN-XiaoxiaoNeural")
+                    )
+                except Exception as e:
+                    return False, f"Edge TTS test failed: {str(e)[:100]}"
+                return True, "Edge TTS is available"
+
+            # For other TTS providers, just verify the model can be created
             # Making an actual TTS call would be more expensive
             # Most TTS providers validate the key on model creation
             AIFactory.create_text_to_speech(
@@ -380,6 +473,71 @@ async def test_individual_model(model) -> Tuple[bool, str]:
     """
     from open_notebook.ai.models import ModelManager
 
+    # Handle MiniMax TTS separately (not supported by Esperanto, must check before get_model)
+    if model.type == "text_to_speech" and model.provider == "minimax":
+        from open_notebook.tts.minimax_tts import generate_speech
+        try:
+            logger.debug(f"MiniMax TTS test: model.id={model.id}, model.credential={getattr(model, 'credential', 'N/A')}")
+            # Try to get API key from credential first, then env var
+            api_key = None
+            cred_id = model.credential
+
+            # If no credential on model, try to find any MiniMax credential
+            if not cred_id:
+                from open_notebook.domain.credential import Credential
+                all_creds = await Credential.get_all()
+                for c in all_creds:
+                    if c.provider == "minimax" and c.api_key:
+                        cred_id = c.id
+                        break
+
+            if cred_id:
+                from open_notebook.domain.credential import Credential
+                try:
+                    cred = await Credential.get(cred_id)
+                    logger.info(f"MiniMax TTS test: cred.id={cred.id}, api_key type={type(cred.api_key).__name__}")
+                    if cred and cred.api_key:
+                        api_key = cred.api_key.get_secret_value()
+                        logger.info(f"MiniMax TTS: Retrieved API key from credential")
+                except Exception as e:
+                    logger.info(f"MiniMax TTS: Error getting credential: {e}")
+
+            if not api_key:
+                api_key = os.environ.get('MINIMAX_API_KEY', '')
+                logger.debug(f"MiniMax TTS: Using env var API key, length={len(api_key) if api_key else 0}")
+
+            audio_data, session_id = await generate_speech(
+                text="Hello from Open Notebook",
+                model=model.name,
+                voice_id="male-qn-qingse",
+                api_key=api_key,
+                timeout=120,
+            )
+            if audio_data:
+                return True, f"MiniMax TTS: Audio generated {len(audio_data)} bytes"
+            return False, "MiniMax TTS returned empty audio"
+        except Exception as e:
+            error_msg = str(e)
+            # 如果模型不支持，尝试使用 speech-2.8-hd
+            if "token plan not support model" in error_msg or "2061" in error_msg:
+                logger.info(f"MiniMax TTS: Model {model.name} not supported, trying speech-2.8-hd")
+                try:
+                    audio_data, session_id = await generate_speech(
+                        text="Hello from Open Notebook",
+                        model="speech-2.8-hd",
+                        voice_id="male-qn-qingse",
+                        api_key=api_key,
+                        timeout=120,
+                    )
+                    if audio_data:
+                        return True, f"MiniMax TTS (speech-2.8-hd): Audio generated {len(audio_data)} bytes"
+                except Exception as e2:
+                    error_msg = str(e2)
+                    logger.debug(f"MiniMax TTS fallback error: {e2}")
+                    return False, f"MiniMax TTS 失败: {error_msg[:80]}"
+            logger.debug(f"MiniMax TTS test error: {e}")
+            return False, f"Error: {error_msg[:80]}"
+
     try:
         manager = ModelManager()
         esp_model = await manager.get_model(model.id)
@@ -402,6 +560,18 @@ async def test_individual_model(model) -> Tuple[bool, str]:
             return True, "Embedding successful"
 
         elif model.type == "text_to_speech":
+            # Handle MiniMax TTS separately (not supported by Esperanto)
+            if model.provider == "minimax":
+                from open_notebook.tts.minimax_tts import generate_speech
+                audio_data, session_id = await generate_speech(
+                    text="Hello from Open Notebook",
+                    model=model.name,
+                    voice_id="audiobook_male_1",
+                )
+                if audio_data:
+                    return True, f"MiniMax TTS: Audio generated {len(audio_data)} bytes"
+                return False, "MiniMax TTS returned empty audio"
+
             # For ElevenLabs, look up first available voice (API uses voice_id, not name)
             voice = DEFAULT_TEST_VOICES.get(model.provider)
             if not voice and hasattr(esp_model, "available_voices"):

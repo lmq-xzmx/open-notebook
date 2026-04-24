@@ -237,4 +237,12 @@ export const credentialsApi = {
     const response = await apiClient.post<MigrationResult>('/credentials/migrate-from-env')
     return response.data
   },
+
+  /**
+   * Get Edge TTS availability status
+   */
+  getEdgeTTSStatus: async (): Promise<{ available: boolean; message: string }> => {
+    const response = await apiClient.get<{ available: boolean; message: string }>('/credentials/edge-tts-status')
+    return response.data
+  },
 }

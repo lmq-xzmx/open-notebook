@@ -232,3 +232,12 @@ class Credential(ObjectModel):
         elif api_key_val is None:
             row["api_key"] = None
         return cls(**row)
+
+    @staticmethod
+    def is_edge_tts_available() -> bool:
+        """Check if Edge TTS is available (edge-tts package installed)."""
+        try:
+            import edge_tts
+            return True
+        except ImportError:
+            return False

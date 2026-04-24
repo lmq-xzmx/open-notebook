@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useEffect, useId } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { AppShell } from '@/components/layout/AppShell'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -53,7 +54,7 @@ import {
   useRegisterModels,
   useMigrateFromEnv,
 } from '@/lib/hooks/use-credentials'
-import { Credential, CreateCredentialRequest, UpdateCredentialRequest, DiscoveredModel } from '@/lib/api/credentials'
+import { Credential, CreateCredentialRequest, UpdateCredentialRequest, DiscoveredModel, credentialsApi } from '@/lib/api/credentials'
 import { Model, ModelDefaults } from '@/lib/types/models'
 import { MigrationBanner, ModelTestResultDialog } from '@/components/settings'
 import { EmbeddingModelChangeDialog } from '@/components/settings/EmbeddingModelChangeDialog'
@@ -78,13 +79,15 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai_compatible: 'OpenAI Compatible',
   dashscope: 'DashScope (Qwen)',
   minimax: 'MiniMax',
+  edge: 'Edge TTS',
+  tencent: 'Tencent Cloud TTS',
 }
 
 // All providers in display order
 const ALL_PROVIDERS = [
   'openai', 'anthropic', 'google', 'groq', 'mistral', 'deepseek',
   'xai', 'openrouter', 'dashscope', 'minimax', 'voyage', 'elevenlabs', 'ollama',
-  'azure', 'vertex', 'openai_compatible',
+  'azure', 'vertex', 'openai_compatible', 'edge', 'tencent',
 ]
 
 // Default modalities per provider
@@ -104,7 +107,9 @@ const PROVIDER_MODALITIES: Record<string, ModelType[]> = {
   vertex: ['language', 'embedding', 'text_to_speech'],
   openai_compatible: ['language', 'embedding', 'text_to_speech', 'speech_to_text'],
   dashscope: ['language'],
-  minimax: ['language'],
+  minimax: ['language', 'text_to_speech'],
+  edge: ['text_to_speech'],
+  tencent: ['text_to_speech'],
 }
 
 // Documentation links
@@ -123,7 +128,9 @@ const PROVIDER_DOCS: Record<string, string> = {
   vertex: 'https://cloud.google.com/vertex-ai/docs/start/cloud-environment',
   openai_compatible: 'https://github.com/lfnovo/open-notebook/blob/main/docs/5-CONFIGURATION/openai-compatible.md',
   dashscope: 'https://help.aliyun.com/zh/model-studio/getting-started/',
-  minimax: 'https://platform.minimaxi.com/document/Guides',
+minimax: 'https://platform.minimaxi.com/document/Guides',
+  edge: 'https://github.com/lfnovo/open-notebook/blob/main/docs/5-CONFIGURATION/edge-tts.md',
+  tencent: 'https://cloud.tencent.com/document/product/1073/47903',
 }
 
 const TYPE_ICONS: Record<ModelType, React.ReactNode> = {
@@ -173,7 +180,8 @@ function CredentialFormDialog({
   const isVertex = provider === 'vertex'
   const isOllama = provider === 'ollama'
   const isOpenAICompatible = provider === 'openai_compatible'
-  const requiresApiKey = !isVertex && !isOllama && !isOpenAICompatible
+  const isEdge = provider === 'edge'
+  const requiresApiKey = !isVertex && !isOllama && !isOpenAICompatible && !isEdge
 
   const [name, setName] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -350,8 +358,8 @@ function CredentialFormDialog({
             </div>
           )}
 
-          {/* Base URL (non-Vertex) */}
-          {!isVertex && (
+          {/* Base URL (non-Vertex, non-Edge) */}
+          {!isVertex && !isEdge && (
             <div className="space-y-2">
               <Label htmlFor="base-url" className="text-muted-foreground">{t('apiKeys.baseUrl')}</Label>
               <input
@@ -984,6 +992,14 @@ function ProviderSection({
   const modalities = PROVIDER_MODALITIES[provider] || ['language']
   const hasCredentials = credentials.length > 0
 
+  // Fetch Edge TTS status for Edge provider
+  const { data: edgeTTSStatus } = useQuery({
+    queryKey: ['edge-tts-status'],
+    queryFn: () => credentialsApi.getEdgeTTSStatus(),
+    enabled: provider === 'edge',
+    staleTime: 60000, // Cache for 1 minute
+  })
+
   // Models linked to any credential of this provider
   const providerModels = models.filter(m =>
     credentials.some(c => c.id === m.credential)
@@ -1010,7 +1026,19 @@ function ProviderSection({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {hasCredentials ? (
+            {provider === 'edge' && edgeTTSStatus ? (
+              edgeTTSStatus.available ? (
+                <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  <Check className="mr-1 h-3 w-3" />
+                  {t('apiKeys.edgeTTSAvailable')}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-amber-500 border-amber-500">
+                  <X className="mr-1 h-3 w-3" />
+                  {t('apiKeys.edgeTTSUnavailable')}
+                </Badge>
+              )
+            ) : hasCredentials ? (
               <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300">
                 <Check className="mr-1 h-3 w-3" />
                 {t('apiKeys.configured')}

@@ -75,6 +75,10 @@ async def generate_podcast_command(
     """
     start_time = time.time()
 
+    # Patch podcast-creator to support edge/tencent TTS
+    from open_notebook.tts.audio_generator import patch_podcast_creator_audio_generation
+    patch_podcast_creator_audio_generation()
+
     try:
         logger.info(
             f"Starting podcast generation for episode: {input_data.episode_name}"
@@ -176,24 +180,32 @@ async def generate_podcast_command(
         # Remove profiles that fail resolution to prevent validation errors.
         for sp_name in list(speaker_profiles_dict.keys()):
             sp_dict = speaker_profiles_dict[sp_name]
-            if sp_dict.get("voice_model"):
-                try:
-                    prov, model, conf = await _resolve_model_config(
-                        str(sp_dict["voice_model"])
-                    )
-                    sp_dict["tts_provider"] = prov
-                    sp_dict["tts_model"] = model
-                    sp_dict["tts_config"] = conf
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to resolve TTS for speaker profile '{sp_name}', "
-                        f"removing from config to prevent validation errors: {e}"
-                    )
+
+            # Create SpeakerProfile object to call resolve_tts_config
+            try:
+                sp_obj = await SpeakerProfile.get_by_name(sp_name)
+                if not sp_obj:
+                    logger.warning(f"Speaker profile '{sp_name}' not found in DB")
                     del speaker_profiles_dict[sp_name]
                     continue
 
+                tts_provider, tts_model, tts_config = await sp_obj.resolve_tts_config()
+                sp_dict["tts_provider"] = tts_provider
+                sp_dict["tts_model"] = tts_model
+                sp_dict["tts_config"] = tts_config
+                sp_dict["tts_provider_type"] = sp_obj.tts_provider_type or "model"
+                sp_dict["tts_voice"] = sp_obj.tts_voice
+            except Exception as e:
+                logger.warning(
+                    f"Failed to resolve TTS for speaker profile '{sp_name}', "
+                    f"removing from config to prevent validation errors: {e}"
+                )
+                del speaker_profiles_dict[sp_name]
+                continue
+
             # Per-speaker TTS overrides
             for speaker in sp_dict.get("speakers", []):
+                # For per-speaker, we still use Model-based TTS (edge/tencent per-speaker not supported yet)
                 if speaker.get("voice_model"):
                     try:
                         prov, model, conf = await _resolve_model_config(
@@ -212,21 +224,39 @@ async def generate_podcast_command(
         if input_data.briefing_suffix:
             briefing += f"\n\nAdditional instructions: {input_data.briefing_suffix}"
 
-        # Create the record for the episode and associate with the ongoing command
-        episode = PodcastEpisode(
-            name=input_data.episode_name,
-            episode_profile=full_model_dump(episode_profile.model_dump()),
-            speaker_profile=full_model_dump(speaker_profile.model_dump()),
-            command=ensure_record_id(input_data.execution_context.command_id)
-            if input_data.execution_context
-            else None,
-            briefing=briefing,
-            content=input_data.content,
-            audio_file=None,
-            transcript=None,
-            outline=None,
-        )
-        await episode.save()
+        # Try to find existing episode by command_id (created by submit_generation_job)
+        # If not found, create new (for backward compatibility)
+        episode = None
+        if input_data.execution_context and input_data.execution_context.command_id:
+            try:
+                cmd_record_id = ensure_record_id(input_data.execution_context.command_id)
+                existing = await repo_query(
+                    "SELECT * FROM episode WHERE command = $cmd LIMIT 1",
+                    {"cmd": cmd_record_id}
+                )
+                if existing and len(existing) > 0:
+                    episode = PodcastEpisode(**existing[0])
+                    logger.info(f"Found existing episode: {episode.id} for command: {input_data.execution_context.command_id}")
+            except Exception as e:
+                logger.warning(f"Failed to find existing episode by command_id: {e}")
+
+        if not episode:
+            # Create new episode record only if not found
+            episode = PodcastEpisode(
+                name=input_data.episode_name,
+                episode_profile=full_model_dump(episode_profile.model_dump()),
+                speaker_profile=full_model_dump(speaker_profile.model_dump()),
+                command=ensure_record_id(input_data.execution_context.command_id)
+                if input_data.execution_context
+                else None,
+                briefing=briefing,
+                content=input_data.content,
+                audio_file=None,
+                transcript=None,
+                outline=None,
+            )
+            await episode.save()
+            logger.info(f"Created new episode: {episode.id} (command: {input_data.execution_context.command_id if input_data.execution_context else None})")
 
         configure("speakers_config", {"profiles": speaker_profiles_dict})
         configure("episode_config", {"profiles": episode_profiles_dict})

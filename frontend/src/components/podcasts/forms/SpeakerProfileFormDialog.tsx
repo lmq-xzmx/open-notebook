@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { Plus, Trash2 } from 'lucide-react'
 
 import { SpeakerProfile } from '@/lib/types/podcasts'
+import { SpeakerProfileInput } from '@/lib/api/podcasts'
 import {
   useCreateSpeakerProfile,
   useUpdateSpeakerProfile,
@@ -40,7 +41,9 @@ const speakerConfigSchema = (t: TFunction) => z.object({
 const speakerProfileSchema = (t: TFunction) => z.object({
   name: z.string().min(1, t('common.nameRequired') || 'Name is required'),
   description: z.string().optional(),
-  voice_model: z.string().min(1, t('podcasts.voiceModelRequired') || 'Voice model is required'),
+  tts_provider_type: z.enum(['edge', 'tencent', 'minimax', 'model']).optional().nullable(),
+  tts_voice: z.string().optional().nullable(),
+  voice_model: z.string().optional().nullable(),
   speakers: z
     .array(speakerConfigSchema(t))
     .min(1, t('podcasts.speakerCountMin') || 'At least one speaker is required')
@@ -64,6 +67,8 @@ const EMPTY_SPEAKER = {
   voice_model: null as string | null,
 }
 
+export type TTSProviderType = 'edge' | 'tencent' | 'minimax' | 'model'
+
 export function SpeakerProfileFormDialog({
   mode,
   open,
@@ -79,6 +84,8 @@ export function SpeakerProfileFormDialog({
       return {
         name: initialData.name,
         description: initialData.description ?? '',
+        tts_provider_type: (initialData.tts_provider_type as TTSProviderType) ?? 'model',
+        tts_voice: initialData.tts_voice ?? null,
         voice_model: initialData.voice_model ?? '',
         speakers: initialData.speakers?.map((speaker) => ({
           ...speaker,
@@ -90,6 +97,8 @@ export function SpeakerProfileFormDialog({
     return {
       name: '',
       description: '',
+      tts_provider_type: 'model' as TTSProviderType,
+      tts_voice: null,
       voice_model: '',
       speakers: [{ ...EMPTY_SPEAKER }],
     }
@@ -127,13 +136,31 @@ export function SpeakerProfileFormDialog({
   }, [open, reset, getDefaults])
 
   const onSubmit = async (values: SpeakerProfileFormValues) => {
-    const payload = {
-      ...values,
+    // Handle TTS provider type specific fields
+    const { tts_provider_type, tts_voice, voice_model } = values
+
+    // Build payload with conditional fields based on provider type
+    const payload: SpeakerProfileInput = {
+      name: values.name,
       description: values.description ?? '',
+      tts_provider_type: tts_provider_type || 'model',
       speakers: values.speakers.map((s) => ({
         ...s,
         voice_model: s.voice_model || null,
       })),
+    }
+
+    // Add provider-specific fields
+    if (tts_provider_type === 'edge' || tts_provider_type === 'tencent') {
+      payload.tts_voice = tts_voice || (tts_provider_type === 'edge' ? 'zh-CN-XiaoxiaoNeural' : '1')
+      payload.voice_model = null
+    } else if (tts_provider_type === 'minimax') {
+      payload.tts_voice = tts_voice || 'audiobook_male_1'
+      payload.voice_model = null
+    } else {
+      // model mode
+      payload.voice_model = voice_model || null
+      payload.tts_voice = null
     }
 
     if (mode === 'create') {
@@ -192,24 +219,171 @@ export function SpeakerProfileFormDialog({
               </h3>
               <Separator className="mt-2" />
             </div>
+
+            {/* TTS Provider Type Toggle */}
             <Controller
               control={control}
-              name="voice_model"
+              name="tts_provider_type"
               render={({ field }) => (
-                <div>
-                  <ModelSelector
-                    label={`${t('podcasts.voiceModel')} *`}
-                    modelType="text_to_speech"
-                    value={field.value}
-                    onChange={field.onChange}
-                    placeholder={t('podcasts.selectVoiceModel')}
-                  />
-                  {errors.voice_model ? (
-                    <p className="text-xs text-red-600 mt-1">
-                      {errors.voice_model.message}
-                    </p>
-                  ) : null}
+                <div className="space-y-2">
+                  <Label>{t('podcasts.ttsProvider') || 'TTS Provider'}</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant={field.value === 'edge' || !field.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => field.onChange('edge')}
+                    >
+                      Edge TTS
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={field.value === 'tencent' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => field.onChange('tencent')}
+                    >
+                      腾讯云 TTS
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={field.value === 'minimax' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => field.onChange('minimax')}
+                    >
+                      MiniMax TTS
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={field.value === 'model' ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => field.onChange('model')}
+                    >
+                      Model
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {field.value === 'edge' && '微软 Azure 免费 TTS，无需 API Key'}
+                    {field.value === 'tencent' && '需要腾讯云 API 密钥'}
+                    {field.value === 'minimax' && '需要 MiniMax API 密钥'}
+                    {field.value === 'model' && '使用 Model 记录 (OpenAI, ElevenLabs 等)'}
+                    {!field.value && '选择 TTS 提供者类型'}
+                  </p>
                 </div>
+              )}
+            />
+
+            {/* Conditional TTS config based on provider type */}
+            <Controller
+              control={control}
+              name="tts_provider_type"
+              render={({ field }) => (
+                <>
+                  {(field.value === 'edge' || (!field.value && true)) && (
+                    <Controller
+                      control={control}
+                      name="tts_voice"
+                      render={({ field: voiceField }) => (
+                        <div className="space-y-2">
+                          <Label>{t('podcasts.edgeVoice') || 'Edge TTS Voice'}</Label>
+                          <select
+                            className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={voiceField.value || 'zh-CN-XiaoxiaoNeural'}
+                            onChange={(e) => voiceField.onChange(e.target.value)}
+                          >
+                            <option value="zh-CN-XiaoxiaoNeural">中文女声 (XiaoxiaoNeural)</option>
+                            <option value="zh-CN-YunxiNeural">中文男声 (YunxiNeural)</option>
+                            <option value="zh-CN-XiaoyiNeural">中文女声 (XiaoyiNeural)</option>
+                            <option value="zh-CN-YunyangNeural">中文新闻 (YunyangNeural)</option>
+                            <option value="zh-CN-XiaochenNeural">中文客服 (XiaochenNeural)</option>
+                            <option value="en-US-JennyNeural">英文女声 (JennyNeural)</option>
+                            <option value="en-US-GuyNeural">英文男声 (GuyNeural)</option>
+                            <option value="en-US-AriaNeural">英文 Aria</option>
+                            <option value="ja-JP-NanamiNeural">日语女声 (NanamiNeural)</option>
+                            <option value="ko-KR-SunHiNeural">韩语女声 (SunHiNeural)</option>
+                          </select>
+                        </div>
+                      )}
+                    />
+                  )}
+
+                  {field.value === 'tencent' && (
+                    <Controller
+                      control={control}
+                      name="tts_voice"
+                      render={({ field: voiceField }) => (
+                        <div className="space-y-2">
+                          <Label>{t('podcasts.tencentVoiceType') || '腾讯云 TTS 语音类型'}</Label>
+                          <select
+                            className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={voiceField.value || '1'}
+                            onChange={(e) => voiceField.onChange(e.target.value)}
+                          >
+                            <option value="1">中文发音</option>
+                            <option value="0">英文发音</option>
+                            <option value="2">中英文混合</option>
+                            <option value="5">韩文发音</option>
+                            <option value="6">日文发音</option>
+                            <option value="7">西班牙文</option>
+                            <option value="8">法文</option>
+                            <option value="9">德文</option>
+                            <option value="11">葡萄牙文</option>
+                            <option value="12">意大利文</option>
+                            <option value="13">印尼文</option>
+                            <option value="14">荷兰文</option>
+                          </select>
+                        </div>
+                      )}
+                    />
+                  )}
+
+                  {field.value === 'minimax' && (
+                    <Controller
+                      control={control}
+                      name="tts_voice"
+                      render={({ field: voiceField }) => (
+                        <div className="space-y-2">
+                          <Label>{t('podcasts.minimaxVoiceType') || 'MiniMax TTS 语音类型'}</Label>
+                          <select
+                            className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={voiceField.value || 'male-qn-qingse'}
+                            onChange={(e) => voiceField.onChange(e.target.value)}
+                          >
+                            <option value="male-qn-qingse">青涩青年音色</option>
+                            <option value="male-qn-jingying">精英青年音色</option>
+                            <option value="male-qn-badao">霸道青年音色</option>
+                            <option value="male-qn-daxuesheng">青年大学生音色</option>
+                            <option value="female-shaonv">少女音色</option>
+                            <option value="male-qn-666">男声测试</option>
+                            <option value="female-tianmei">甜美女声</option>
+                          </select>
+                        </div>
+                      )}
+                    />
+                  )}
+
+                  {field.value === 'model' && (
+                    <Controller
+                      control={control}
+                      name="voice_model"
+                      render={({ field: modelField }) => (
+                        <div>
+                          <ModelSelector
+                            label={`${t('podcasts.voiceModel')} *`}
+                            modelType="text_to_speech"
+                            value={modelField.value || ''}
+                            onChange={modelField.onChange}
+                            placeholder={t('podcasts.selectVoiceModel')}
+                          />
+                          {errors.voice_model && (
+                            <p className="text-xs text-red-600 mt-1">
+                              {errors.voice_model.message}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    />
+                  )}
+                </>
               )}
             />
           </div>

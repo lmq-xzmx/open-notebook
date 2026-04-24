@@ -38,6 +38,8 @@ export interface SpeakerProfile {
   name: string
   description: string
   voice_model?: string | null
+  tts_provider_type?: string | null  // "edge", "tencent", or "model"
+  tts_voice?: string | null          // voice for edge/tencent
   speakers: SpeakerVoiceConfig[]
   // Legacy fields
   tts_provider?: string | null
@@ -152,5 +154,10 @@ export function needsModelSetup(profile: EpisodeProfile | SpeakerProfile): boole
     return !ep.outline_llm || !ep.transcript_llm
   }
   const sp = profile as SpeakerProfile
+  // If using edge or tencent TTS, no model setup needed
+  if (sp.tts_provider_type === 'edge' || sp.tts_provider_type === 'tencent') {
+    return false
+  }
+  // For 'model' type or legacy, voice_model is required
   return !sp.voice_model
 }

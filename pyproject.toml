@@ -41,6 +41,8 @@ dependencies = [
     "numpy>=2.4.1",
     "pycountry>=26.2.16",
     "babel>=2.18.0",
+    "tencentcloud-sdk-python>=3.1.0",
+    "edge-tts>=7.0.0",
 ]
 
 [tool.setuptools]

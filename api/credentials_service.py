@@ -405,6 +405,40 @@ async def test_credential(credential_id: str) -> dict:
             )
             return {"provider": provider, "success": success, "message": message}
 
+        if provider == "edge":
+            from open_notebook.tts.edge_tts import is_edge_tts_available, generate_speech
+            import asyncio
+            import concurrent.futures
+
+            if not is_edge_tts_available():
+                return {
+                    "provider": provider,
+                    "success": False,
+                    "message": "edge-tts package not installed. Run: uv pip install edge-tts",
+                }
+
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, generate_speech("Test", voice="zh-CN-XiaoxiaoNeural"))
+                    audio_data, session_id = future.result()
+            except Exception as e:
+                return {
+                    "provider": provider,
+                    "success": False,
+                    "message": f"Edge TTS test failed: {str(e)[:100]}",
+                }
+            return {"provider": provider, "success": True, "message": "Edge TTS is available"}
+
+        if provider == "tencent":
+            from open_notebook.ai.connection_tester import _test_tencent_tts_connection
+
+            base_url = config.get("base_url")
+            api_key = config.get("api_key")
+            if not base_url:
+                base_url = "https://tts.tencentcloudapi.com"
+            success, message = await _test_tencent_tts_connection(base_url, api_key)
+            return {"provider": provider, "success": success, "message": message}
+
         # Standard provider: use Esperanto to create and test
         from esperanto.factory import AIFactory
 

@@ -20,10 +20,10 @@ interface NotebookListProps {
   actionLabel?: string
 }
 
-export function NotebookList({ 
-  notebooks, 
-  isLoading, 
-  title, 
+export function NotebookList({
+  notebooks,
+  isLoading,
+  title,
   collapsible = false,
   emptyTitle,
   emptyDescription,
@@ -31,7 +31,7 @@ export function NotebookList({
   actionLabel,
 }: NotebookListProps) {
   const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(!collapsible)
+  const [isExpanded, setIsExpanded] = useState(true)
 
   if (isLoading) {
     return (

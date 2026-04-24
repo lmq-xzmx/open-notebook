@@ -5,6 +5,7 @@ export const enUS = {
     new: "New",
     cancel: "Cancel",
     delete: "Delete",
+    clear: "Clear",
     edit: "Edit",
     theme: "Theme",
     signOut: "Sign Out",
@@ -491,6 +492,9 @@ export const enUS = {
     selectFinalPlaceholder: "Select final answer model",
     saveChanges: "Save Changes",
     processingQuestion: "Processing your question...",
+    questionHistory: "Question History",
+    searchHistory: "Search History",
+    resultsLabel: "results",
   },
   podcasts: {
     generateEpisode: "Generate Podcast Episode",

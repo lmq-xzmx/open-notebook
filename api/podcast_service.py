@@ -92,7 +92,7 @@ class PodcastService:
                 logger.error(f"Failed to import podcast commands: {import_err}")
                 raise ValueError("Podcast commands not available")
 
-            # Submit command to surreal-commands
+            # Submit command to surreal-commands FIRST to get job_id
             job_id = submit_command("open_notebook", "generate_podcast", command_args)
 
             # Convert RecordID to string if needed
@@ -102,6 +102,37 @@ class PodcastService:
             logger.info(
                 f"Submitted podcast generation job: {job_id_str} for episode '{episode_name}'"
             )
+
+            # Create episode record BEFORE command runs so it shows up immediately in the list
+            # The command will update this episode when it starts executing
+            from open_notebook.database.repository import ensure_record_id
+
+            briefing = episode_profile.default_briefing
+            if briefing_suffix:
+                briefing += f"\n\nAdditional instructions: {briefing_suffix}"
+
+            # Helper for model dump
+            def full_model_dump(model):
+                if hasattr(model, "model_dump"):
+                    return model.model_dump()
+                elif hasattr(model, "dict"):
+                    return model.dict()
+                return model
+
+            episode = PodcastEpisode(
+                name=episode_name,
+                episode_profile=full_model_dump(episode_profile),
+                speaker_profile=full_model_dump(speaker_profile),
+                command=ensure_record_id(job_id_str),
+                briefing=briefing,
+                content=str(content),
+                audio_file=None,
+                transcript=None,
+                outline=None,
+            )
+            await episode.save()
+            logger.info(f"Created episode record: {episode.id} for job: {job_id_str}")
+
             return job_id_str
 
         except Exception as e:
