@@ -66,8 +66,10 @@ async def generate_speech(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # Step 1: 创建语音合成任务
-            create_url = f"{MINIMAX_API_BASE}/v1/t2a_async_v2"
+            # 使用同步 API (t2a_v2) 而非异步 API (t2a_async_v2)
+            # 因为部分账户不支持异步 API
+            api_url = f"{MINIMAX_API_BASE}/v1/t2a_v2"
+            # MiniMax API 使用 Bearer 格式
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -78,15 +80,16 @@ async def generate_speech(
                 "voice_setting": {
                     "voice_id": voice_id,
                 },
+                "speed": speed,
+                "vol": vol,
+                "pitch": pitch,
             }
 
-            create_response = await client.post(
-                create_url, headers=headers, json=payload
-            )
-            create_data = create_response.json()
+            response = await client.post(api_url, headers=headers, json=payload)
+            data = response.json()
 
             # 检查错误
-            base_resp = create_data.get("base_resp", {})
+            base_resp = data.get("base_resp", {})
             status_code = base_resp.get("status_code")
             if status_code and status_code != 0:
                 status_msg = base_resp.get("status_msg", "")
@@ -97,46 +100,13 @@ async def generate_speech(
                 else:
                     raise ValueError(f"MiniMax API 错误 {status_code}: {status_msg}")
 
-            task_id = create_data.get("task_id")
-            if not task_id:
-                raise ValueError(f"创建 MiniMax TTS 任务失败: {create_data}")
+            # 同步 API 直接返回音频数据（base64 编码）
+            audio_data = data.get("data", b"")
 
-            logger.debug(f"MiniMax TTS 任务已创建: task_id={task_id}")
-
-            # Step 2: 轮询任务状态
-            query_url = f"{MINIMAX_API_BASE}/v1/query/t2a_async_query_v2?task_id={task_id}"
-
-            for attempt in range(timeout // 2):
-                await asyncio.sleep(2)
-
-                query_response = await client.get(query_url, headers=headers)
-                query_data = query_response.json()
-
-                status = query_data.get("status", "").lower()
-                logger.debug(f"MiniMax TTS 任务状态: {status} (attempt {attempt + 1})")
-
-                if status == "success":
-                    file_id = query_data.get("file_id")
-                    break
-                elif status in ("processing", "pending"):
-                    continue
-                elif status == "failed":
-                    err_msg = query_data.get("desc", "Unknown error")
-                    raise ValueError(f"MiniMax TTS 任务失败: {err_msg}")
-                else:
-                    raise ValueError(f"未知任务状态: {status}")
-            else:
-                raise ValueError("MiniMax TTS 任务超时")
-
-            if not file_id:
-                raise ValueError("MiniMax TTS 任务超时或未返回 file_id")
-
-            # Step 3: 下载音频文件
-            download_url = f"{MINIMAX_API_BASE}/v1/files/retrieve_content?file_id={file_id}"
-            download_response = await client.get(download_url, headers=headers)
-            download_response.raise_for_status()
-
-            audio_data = _extract_audio_from_tar(download_response.content)
+            # 如果是 base64 编码，解码
+            if isinstance(audio_data, str):
+                import base64
+                audio_data = base64.b64decode(audio_data)
 
             # 如果提供了输出路径，保存文件
             if output_path:
